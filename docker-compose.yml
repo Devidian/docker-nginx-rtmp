@@ -15,3 +15,4 @@ services:
       - RTMP_HLS_IP=127.0.0.1
     volumes:
       - ./certs:/opt/certs
+      - ./conf.d:/opt/conf.d
