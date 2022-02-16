@@ -26,4 +26,6 @@ done;
 envsubst "$FILTER_ENV" < \
   /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
 
+[[ $EXTRA_FILE ]] && [[ -f $EXTRA_FILE ]] && . $EXTRA_FILE
+
 nginx
