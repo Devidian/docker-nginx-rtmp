@@ -1,16 +1,16 @@
-ARG NGINX_VERSION=1.21.4
+ARG NGINX_VERSION=1.23.1
 ARG NGINX_RTMP_VERSION=1.2.2
-ARG FFMPEG_VERSION=4.4
+ARG FFMPEG_VERSION=5.1
 
 
 ##############################
 # Build the NGINX-build image.
-FROM alpine:3.14.2 as build-nginx
+FROM alpine:3.16.1 as build-nginx
 ARG NGINX_VERSION
 ARG NGINX_RTMP_VERSION
 
 # Build dependencies.
-RUN apk add --update \
+RUN apk add --no-cache \
   build-base \
   ca-certificates \
   curl \
@@ -28,19 +28,20 @@ RUN apk add --update \
   pkgconfig \
   zlib-dev
 
+WORKDIR /tmp
+
 # Get nginx source.
-RUN cd /tmp && \
-  wget https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
+RUN wget https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz && \
   tar zxf nginx-${NGINX_VERSION}.tar.gz && \
   rm nginx-${NGINX_VERSION}.tar.gz
 
 # Get nginx-rtmp module.
-RUN cd /tmp && \
-  wget https://github.com/arut/nginx-rtmp-module/archive/v${NGINX_RTMP_VERSION}.tar.gz && \
+RUN wget https://github.com/arut/nginx-rtmp-module/archive/v${NGINX_RTMP_VERSION}.tar.gz && \
   tar zxf v${NGINX_RTMP_VERSION}.tar.gz && rm v${NGINX_RTMP_VERSION}.tar.gz
 
 # Compile nginx with nginx-rtmp module.
-RUN cd /tmp/nginx-${NGINX_VERSION} && \
+WORKDIR /tmp/nginx-${NGINX_VERSION}
+RUN \
   ./configure \
   --prefix=/usr/local/nginx \
   --add-module=/tmp/nginx-rtmp-module-${NGINX_RTMP_VERSION} \
@@ -49,18 +50,20 @@ RUN cd /tmp/nginx-${NGINX_VERSION} && \
   --with-file-aio \
   --with-http_ssl_module \
   --with-debug \
+  --with-http_stub_status_module \
   --with-cc-opt="-Wimplicit-fallthrough=0" && \
-  cd /tmp/nginx-${NGINX_VERSION} && make && make install
+  make && \
+  make install
 
 ###############################
 # Build the FFmpeg-build image.
-FROM alpine:3.14.2 as build-ffmpeg
+FROM alpine:3.16.1 as build-ffmpeg
 ARG FFMPEG_VERSION
 ARG PREFIX=/usr/local
 ARG MAKEFLAGS="-j4"
 
 # FFmpeg build dependencies.
-RUN apk add --update \
+RUN apk add --no-cache \
   build-base \
   coreutils \
   freetype-dev \
@@ -83,15 +86,17 @@ RUN apk add --update \
   yasm
 
 RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/community >> /etc/apk/repositories
-RUN apk add --update fdk-aac-dev
+RUN apk add --no-cache fdk-aac-dev
 
+WORKDIR /tmp
 # Get FFmpeg source.
-RUN cd /tmp/ && \
-  wget http://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz && \
-  tar zxf ffmpeg-${FFMPEG_VERSION}.tar.gz && rm ffmpeg-${FFMPEG_VERSION}.tar.gz
+RUN wget http://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz && \
+  tar zxf ffmpeg-${FFMPEG_VERSION}.tar.gz && \
+  rm ffmpeg-${FFMPEG_VERSION}.tar.gz
 
 # Compile ffmpeg.
-RUN cd /tmp/ffmpeg-${FFMPEG_VERSION} && \
+WORKDIR /tmp/ffmpeg-${FFMPEG_VERSION}
+RUN \
   ./configure \
   --prefix=${PREFIX} \
   --enable-version3 \
@@ -109,21 +114,22 @@ RUN cd /tmp/ffmpeg-${FFMPEG_VERSION} && \
   --enable-libass \
   --enable-libwebp \
   --enable-postproc \
-  --enable-avresample \
   --enable-libfreetype \
   --enable-openssl \
   --disable-debug \
   --disable-doc \
   --disable-ffplay \
   --extra-libs="-lpthread -lm" && \
-  make && make install && make distclean
+  make && \
+  make install && \
+  make distclean
 
 # Cleanup.
 RUN rm -rf /var/cache/* /tmp/*
 
 ##########################
 # Build the release image.
-FROM alpine:3.14.2
+FROM alpine:3.16.1
 LABEL MAINTAINER Alfred Gutierrez <alf.g.jr@gmail.com>
 
 # Set default ports.
@@ -134,7 +140,7 @@ ENV STREAM_AUTH_HOST http://127.0.0.1:9980
 ENV RTMP_TRANSCODE_IP 127.0.0.1
 ENV RTMP_HLS_IP 127.0.0.1
 
-RUN apk add --update \
+RUN apk add --no-cache \
   ca-certificates \
   gettext \
   openssl \
@@ -161,10 +167,10 @@ COPY --from=build-ffmpeg /usr/lib/libfdk-aac.so.2 /usr/lib/libfdk-aac.so.2
 # Add NGINX path, config and static files.
 ENV PATH "${PATH}:/usr/local/nginx/sbin"
 RUN mkdir -p /opt/data && mkdir /www && mkdir -p /opt/conf.d
-ADD nginx.conf /etc/nginx/nginx.conf.template
-ADD entrypoint.sh /opt/entrypoint.sh
+COPY nginx.conf /etc/nginx/nginx.conf.template
+COPY entrypoint.sh /opt/entrypoint.sh
 RUN chmod gu+x /opt/entrypoint.sh
-ADD static /www/static
+COPY static /www/static
 
 EXPOSE 1935
 EXPOSE 80
